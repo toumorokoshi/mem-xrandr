@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# prototyping script for mem-xrandr
+
+CONFIG_PATH="$HOME/.config/mem-xrandr"
+
+main() {
+    if [ "$#" -eq 0 ]; then
+        load_saved_configuration
+    else
+        execute_and_save_configuration "$@"
+    fi
+}
+
+load_saved_configuration() {
+    target_path="$CONFIG_PATH/$(get_monitor_hash)"
+    if [ -f "$target_path" ]; then
+        args="$(cat "$target_path")"
+        xrandr $args
+    fi
+}
+
+execute_and_save_configuration() {
+    target_path="$CONFIG_PATH/$(get_monitor_hash)"
+    if xrandr "$@"; then
+        mkdir -p "$CONFIG_PATH"
+        echo "$@" > "$target_path"
+        # hack around a current edge case where the
+        # monitor hash will change when new configuration is applied,
+        # because xrandr displays additional info on a connected
+        # and configured monitor.
+        #
+        # So we need to save the configs with the "after" monitor hash too.
+        target_path_new_configs="$CONFIG_PATH/$(get_monitor_hash)"
+        echo "$@" > "$target_path_new_configs"
+    fi
+}
+
+# get a unique hash of the current monitor configuration,
+# to save settings under.
+#
+# xrandr --listmonitors only shows monitors that are currently
+# being used, rather than connected. as such we must precisely
+# find the lines of the specific connected devices, and use that
+# to uniquely create a hash.
+get_monitor_hash() {
+    string_to_hash="$(xrandr --query | grep " connected")"
+    echo "$string_to_hash" | md5sum | cut -f1 -d" "
+}
+
+main "$@"

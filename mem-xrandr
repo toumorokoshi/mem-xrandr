@@ -2,6 +2,8 @@
 # prototyping script for mem-xrandr
 
 CONFIG_PATH="$HOME/.config/mem-xrandr"
+EXPECTED_STATE_FILE_NAME="expected_state_hash"
+CONFIG_FILE_NAME="config"
 
 main() {
     if [ "$#" -eq 0 ]; then
@@ -12,26 +14,27 @@ main() {
 }
 
 load_saved_configuration() {
-    target_path="$CONFIG_PATH/$(get_monitor_hash)"
-    if [ -f "$target_path" ]; then
-        args="$(cat "$target_path")"
-        xrandr $args
+    target_path_root="$CONFIG_PATH/$(get_monitor_hash)"
+    target_path="${target_path_root}/${CONFIG_FILE_NAME}"
+    if [ -d "$target_path_root" ]; then
+        expected_state=$(cat "${target_path_root}/${EXPECTED_STATE_FILE_NAME}")
+        if [[ "$(get_state_hash)" != "${expected_state}" ]]; then
+            echo "state differed from what was expected, configuring"
+            args="$(cat "$target_path")"
+            xrandr $args
+        else
+            echo "no state diff found."
+        fi
     fi
 }
 
 execute_and_save_configuration() {
-    target_path="$CONFIG_PATH/$(get_monitor_hash)"
+    target_path_root="$CONFIG_PATH/$(get_monitor_hash)"
+    target_path="${target_path_root}/${CONFIG_FILE_NAME}"
     if xrandr "$@"; then
-        mkdir -p "$CONFIG_PATH"
+        mkdir -p "${target_path_root}"
         echo "$@" > "$target_path"
-        # hack around a current edge case where the
-        # monitor hash will change when new configuration is applied,
-        # because xrandr displays additional info on a connected
-        # and configured monitor.
-        #
-        # So we need to save the configs with the "after" monitor hash too.
-        target_path_new_configs="$CONFIG_PATH/$(get_monitor_hash)"
-        echo "$@" > "$target_path_new_configs"
+        get_state_hash > "$target_path_root/${EXPECTED_STATE_FILE_NAME}"
     fi
 }
 
@@ -42,7 +45,18 @@ execute_and_save_configuration() {
 # being used, rather than connected. as such we must precisely
 # find the lines of the specific connected devices, and use that
 # to uniquely create a hash.
+#
+# to handle the situation where the display is turned off, we need to
+# ignore the specific resolution that the current device is configured as.
+# as a result, the only thing we can do is key off the identifiers of the
+# connected displays (e.g. eDP-1, DP-1).
 get_monitor_hash() {
+    string_to_hash="$(xrandr --query | grep " connected" | cut -f 1 -d ' ')"
+    echo "$string_to_hash" | md5sum | cut -f1 -d" "
+}
+
+# returns back a value that represents the final state.
+get_state_hash() {
     string_to_hash="$(xrandr --query | grep " connected")"
     echo "$string_to_hash" | md5sum | cut -f1 -d" "
 }
